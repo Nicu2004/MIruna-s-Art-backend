@@ -14,6 +14,7 @@ import {
   verifyRefreshToken,
   REFRESH_TOKEN_TTL_MS,
 } from "./jwt.js";
+import { sendBulkEventEmail } from "./mailService.js";
 import { requireAdmin } from "./requireAdmin.js";
 import cookieParser from "cookie-parser";
 import { v4 as uuidv4 } from "uuid";
@@ -300,8 +301,8 @@ app.post("/api/admin/artworks", requireAuth, requireAdmin, async (req, res) => {
       data: {
         name,
         price,
-        ...(dimentions ? { dimentions } : {}), // altfel rămâne default "0x0"
-        photoUrl: photoUrls[0], // preview-ul, ca înainte, în câmpul legacy
+        ...(dimentions ? { dimentions } : {}),
+        photoUrl: photoUrls[0],
         photos: {
           create: photoUrls.map((url, index) => ({ url, position: index })),
         },
@@ -315,10 +316,90 @@ app.post("/api/admin/artworks", requireAuth, requireAdmin, async (req, res) => {
     res.status(500).json({ message: "Eroare internă" });
   }
 });
+app.get("/api/admin/products", requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const products = await prisma.product.findMany({
+      orderBy: { id: "desc" },
+      select: {
+        id: true,
+        name: true,
+        price: true,
+        photoUrl: true,
+        status: true,
+        viewEnabled: true,
+      },
+    });
+
+    const formatted = products.map((p) => ({ ...p, price: Number(p.price) }));
+    res.json({ products: formatted });
+  } catch (err) {
+    console.error("Eroare la /api/admin/products:", err);
+    res.status(500).json({ message: "Eroare internă" });
+  }
+});
+app.patch(
+  "/api/admin/products/:id/visibility",
+  requireAuth,
+  requireAdmin,
+  async (req, res) => {
+    const { id } = req.params;
+    const { viewEnabled } = req.body;
+
+    if (typeof viewEnabled !== "boolean") {
+      return res
+        .status(400)
+        .json({ message: "viewEnabled trebuie să fie boolean" });
+    }
+
+    try {
+      const product = await prisma.product.update({
+        where: { id: Number(id) },
+        data: { viewEnabled },
+      });
+      res.json({ product });
+    } catch (err) {
+      console.error("Eroare la schimbarea vizibilității:", err);
+      res.status(500).json({ message: "Eroare internă" });
+    }
+  },
+);
+
+app.delete(
+  "/api/admin/products/:id",
+  requireAuth,
+  requireAdmin,
+  async (req, res) => {
+    const { id } = req.params;
+
+    try {
+      const existingOrders = await prisma.orderItem.findFirst({
+        where: { productId: Number(id) },
+      });
+
+      if (existingOrders) {
+        return res.status(409).json({
+          message:
+            "Acest produs are comenzi asociate — nu poate fi șters. Ascunde-l în loc, sau marchează-l ca vândut.",
+        });
+      }
+
+      await prisma.productPhoto.deleteMany({
+        where: { productId: Number(id) },
+      });
+      await prisma.product.delete({ where: { id: Number(id) } });
+
+      res.json({ message: "Produs șters" });
+    } catch (err) {
+      console.error("Eroare la ștergerea produsului:", err);
+      res.status(500).json({ message: "Eroare internă" });
+    }
+  },
+);
+
 app.get("/api/products", async (req, res) => {
   try {
     const products = await prisma.product.findMany({
-      where: { status: "available" },
+      where: { status: "available", viewEnabled: true },
       orderBy: { id: "desc" },
       select: {
         id: true,
@@ -339,7 +420,106 @@ app.get("/api/products", async (req, res) => {
     res.status(500).json({ message: "Eroare internă" });
   }
 });
+app.get(
+  "/api/admin/exhibitions",
+  requireAuth,
+  requireAdmin,
+  async (req, res) => {
+    try {
+      const exhibitions = await prisma.exhibitions.findMany({
+        orderBy: { date: "desc" },
+        select: {
+          id: true,
+          title: true,
+          date: true,
+          location: true,
+          description: true,
+          status: true,
+          viewEnabled: true,
+        },
+      });
 
+      res.status(200).json(exhibitions);
+    } catch (error) {
+      res.status(500).json("internal error while feeding the exhibitions");
+    }
+  },
+);
+app.post(
+  "/api/admin/exhibitions",
+  requireAuth,
+  requireAdmin,
+
+  async (req, res) => {
+    try {
+      console.log(req.body);
+      const exhibition = {
+        title: req.body.title,
+        date: new Date(req.body.date),
+        location: req.body.location,
+        description: req.body.description,
+        status: req.body.status,
+        viewEnabled: true,
+      };
+      const save = await prisma.exhibitions.create({ data: exhibition });
+
+      const recipients = await prisma.user.findMany({
+        orderBy: { email: "asc" },
+        select: {
+          email: true,
+          name: true,
+        },
+      });
+      recipients.push({
+        email: "blendeadennis@gmail.com",
+        name: "Blendea Dennis",
+      });
+      recipients.push({ email: "mara.anton12@gmail.com", name: "Mara Anton" });
+      console.log("Succes saved event");
+      sendBulkEventEmail(recipients, exhibition);
+      res.status(200).json({ exhibition: save });
+    } catch (err) {
+      console.log(err);
+    }
+  },
+);
+app.delete(
+  "/api/admin/exhibitions/:id",
+  requireAuth,
+  requireAdmin,
+  async (req, res) => {
+    const { id } = req.params;
+    try {
+      const response = await prisma.exhibitions.delete({
+        where: { id: Number(id) },
+      });
+      res.status(200).json({ status: "success" });
+    } catch (errr) {
+      console.log(error);
+      res.status(500).json({ satus: "not deleted" });
+    }
+  },
+);
+
+app.get("/api/exhibitions", async (req, res) => {
+  try {
+    const result = await prisma.exhibitions.findMany({
+      where: { viewEnabled: true },
+      orderBy: { date: "desc" },
+      select: {
+        title: true,
+        date: true,
+        location: true,
+        description: true,
+        status: true,
+        viewEnabled: true,
+      },
+    });
+    res.status(200).json({ data: result });
+  } catch (error) {
+    res.status(401).json({ error: error });
+  }
+});
 app.listen(8080, () => {
   console.log(
     `server started on port 8080, frontend: ${process.env.FRONTEND_ORIGIN}`,

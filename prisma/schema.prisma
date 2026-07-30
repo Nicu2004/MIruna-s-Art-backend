@@ -48,12 +48,13 @@ model RefreshToken {
 }
 
 model Product {
-  id         Int     @id @default(autoincrement())
-  name       String  @default("product")
-  dimentions String  @default("0x0")
-  price      Decimal @db.Decimal(10, 2)
-  photoUrl   String  @map("photo-url")
-  status     String  @default("available") // ← nou: "available" | "sold"
+  id          Int     @id @default(autoincrement())
+  name        String  @default("product")
+  dimentions  String  @default("0x0")
+  price       Decimal @db.Decimal(10, 2)
+  photoUrl    String  @map("photo-url")
+  status      String  @default("available") // ← nou: "available" | "sold"
+  viewEnabled Boolean @default(true) @map("view_enabled") //
 
   photos     ProductPhoto[]
   orderItems OrderItem[]
@@ -97,4 +98,16 @@ model OrderItem {
   product Product @relation(fields: [productId], references: [id])
 
   @@map("order_items")
+}
+
+model Exhibitions {
+  id          Int      @id @default(autoincrement())
+  title       String   @map("exhibition_title")
+  date        DateTime @map("exhibition_date")
+  location    String   @map("exhibition_location")
+  description String   @map("exhibition_description") @db.Text
+  status      String   @map("exhibition_status") //ongoing, upcoming/past
+  viewEnabled Boolean  @map("view_enabled")
+
+  @@map("exhibitions")
 }

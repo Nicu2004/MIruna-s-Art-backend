@@ -1,4 +1,4 @@
-import { prisma } from "./server.js"; // ajustează dacă exporți prisma altfel
+import { prisma } from "./server.js";
 
 export async function requireAdmin(req, res, next) {
   try {

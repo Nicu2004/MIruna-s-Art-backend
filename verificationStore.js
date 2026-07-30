@@ -1,4 +1,4 @@
-const codes = new Map(); // email -> { code, expiresAt }
+const codes = new Map();
 
 const CODE_TTL_MS = 10 * 60 * 1000;
 

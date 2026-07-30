@@ -40,3 +40,35 @@ export async function sendMessage(params) {
     console.error("Error while sending mail:", err);
   }
 }
+export async function sendBulkEventEmail(recipients, event) {
+  const dateFormatted = new Date(event.date).toLocaleDateString("ro-RO", {
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+  });
+
+  const results = { sent: 0, failed: 0 };
+
+  for (const recipient of recipients) {
+    try {
+      await transporter.sendMail({
+        from: `"Miruna's Art" <${process.env.SMTP_USER}>`,
+        to: recipient.email,
+        subject: `Eveniment nou: ${event.title}`,
+        text: `Bună ziua ${recipient.name},\n\nLa data de ${dateFormatted} va avea loc "${event.title}", la ${event.location}.\n\n${event.description}`,
+        html: `
+          <p>Bună ziua <strong>${recipient.name}</strong>,</p>
+          <p>La data de <strong>${dateFormatted}</strong> va avea loc
+             "<strong>${event.title}</strong>", la <strong>${event.location}</strong>.</p>
+          <p>${event.description}</p>
+        `,
+      });
+      results.sent++;
+    } catch (err) {
+      console.error(`Eroare la trimiterea către ${recipient.email}:`, err);
+      results.failed++;
+    }
+  }
+
+  return results;
+}
