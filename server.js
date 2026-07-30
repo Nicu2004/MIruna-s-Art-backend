@@ -26,6 +26,10 @@ cloudinary.config({
   api_secret: process.env.CLOUDINARY_API_SECRET,
 });
 
+const allowedOrigins = [
+  "http://localhost:5173",
+  "https://mirunas-art.vercel.app",
+];
 const app = express();
 const REFRESH_COOKIE_NAME = "refresh_token";
 const IS_PROD = process.env.NODE_ENV === "production";
@@ -69,10 +73,17 @@ async function issueTokenPair(res, userId) {
 }
 app.use(
   cors({
-    origin: process.env.FRONTEND_ORIGIN,
+    origin: function (origin, callback) {
+      if (!origin || allowedOrigins.includes(origin)) {
+        callback(null, true);
+      } else {
+        callback(new Error(`Origin ${origin} not allowed by CORS`));
+      }
+    },
     credentials: true,
   }),
 );
+console.log(process.env.FRONTEND_ORIGIN);
 app.use(express.json());
 app.use(cookieParser());
 
@@ -234,7 +245,70 @@ app.post("/api/auth/verify-code", (req, res) => {
 
   res.send(200);
 });
-app.post("/change-password", (req, res) => {});
+
+app.post("/api/auth/forgot-password", async (req, res) => {
+  const { email } = req.body;
+  if (!email) return res.status(400).json({ message: "Email lipsă" });
+
+  const user = await prisma.user.findUnique({ where: { email } });
+
+  if (!user) {
+    return res.json({
+      message: "Dacă adresa există în sistem, vei primi un cod de resetare.",
+    });
+  }
+
+  const code = storeCode(email);
+
+  await sendMessage({
+    email,
+    code,
+  });
+
+  res.json({
+    message: "Dacă adresa există în sistem, vei primi un cod de resetare.",
+  });
+});
+
+app.post("/api/auth/reset-password", async (req, res) => {
+  const { email, code, newPassword } = req.body;
+
+  if (!email || !code || !newPassword) {
+    return res.status(400).json({ message: "Date lipsă" });
+  }
+  if (newPassword.length < 8) {
+    return res
+      .status(400)
+      .json({ message: "Parola trebuie să aibă minim 8 caractere" });
+  }
+
+  const result = verifyCode(email, code);
+  if (!result.valid) {
+    return res.status(400).json({ message: "Cod incorect sau expirat" });
+  }
+
+  try {
+    const passwordHash = await bcrypt.hash(newPassword, 12);
+
+    await prisma.user.update({
+      where: { email },
+      data: { passwordHash },
+    });
+
+    consumeCode(email);
+
+    const user = await prisma.user.findUnique({ where: { email } });
+    await prisma.refreshToken.updateMany({
+      where: { userId: user.id, revoked: false },
+      data: { revoked: true },
+    });
+
+    res.json({ message: "Parola a fost schimbată cu succes" });
+  } catch (err) {
+    console.error("Eroare la resetarea parolei:", err);
+    res.status(500).json({ message: "Eroare internă" });
+  }
+});
 app.post("/delete-account", (req, res) => {});
 app.get("/api/admin/invoices", (req, res) => {
   const Invoice = {
