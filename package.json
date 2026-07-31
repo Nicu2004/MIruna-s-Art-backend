@@ -8,7 +8,8 @@
   "main": "server.js",
   "scripts": {
     "dev": "NODE_ENV=development nodemon server.js",
-    "start": "NODE_ENV=production node server.js"
+    "start": "NODE_ENV=production node server.js",
+    "postinstall": "npx prisma generate"
   },
   "dependencies": {
     "@prisma/adapter-mariadb": "^7.9.0",
