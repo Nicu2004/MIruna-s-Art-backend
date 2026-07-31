@@ -22,7 +22,8 @@ model User {
   isAdmin       Boolean  @default(false) @map("is_admin")
   createdAt     DateTime @default(now()) @map("created_at")
 
-  orders Order[]
+  orders   Order[]
+  invoices Invoice[]
 
   @@map("users")
 }
@@ -66,7 +67,7 @@ model ProductPhoto {
   id        Int    @id @default(autoincrement())
   productId Int    @map("product_id")
   url       String
-  position  Int // 0 = preview, restul = galerie
+  position  Int
 
   product Product @relation(fields: [productId], references: [id])
 
@@ -81,8 +82,9 @@ model Order {
   createdAt   DateTime @default(now()) @map("created_at")
   lastUpdate  DateTime @default(now()) @map("last_updated")
 
-  user  User        @relation(fields: [userId], references: [id])
-  items OrderItem[]
+  user    User        @relation(fields: [userId], references: [id])
+  items   OrderItem[]
+  invoice Invoice?
 
   @@map("orders")
 }
@@ -106,8 +108,31 @@ model Exhibitions {
   date        DateTime @map("exhibition_date")
   location    String   @map("exhibition_location")
   description String   @map("exhibition_description") @db.Text
-  status      String   @map("exhibition_status") //ongoing, upcoming/past
+  status      String   @map("exhibition_status")
   viewEnabled Boolean  @map("view_enabled")
 
   @@map("exhibitions")
+}
+
+model Artist {
+  id          Int    @id @default(autoincrement())
+  name        String @map("name")
+  title       String @map("title")
+  description String @map("description") @db.Text
+
+  @@map("artist")
+}
+
+model Invoice {
+  id              Int      @id @default(autoincrement())
+  orderId         Int      @unique @map("order_id")
+  customerId      Int      @map("customer_id")
+  customerAddress String   @map("customer_address")
+  amountPaid      Decimal  @map("amount_paid") @db.Decimal(10, 2)
+  issuedAt        DateTime @default(now()) @map("issued_at")
+
+  order Order @relation(fields: [orderId], references: [id])
+  user  User  @relation(fields: [customerId], references: [id])
+
+  @@map("invoices")
 }

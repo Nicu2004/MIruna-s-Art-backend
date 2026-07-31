@@ -1,4 +1,6 @@
 import "./env.js";
+import { generateInvoicePdf } from "./generateInvoicePdf.js";
+import { sendInvoiceEmail } from "./mailService.js";
 
 import express from "express";
 import bcrypt from "bcrypt";
@@ -309,19 +311,40 @@ app.post("/api/auth/reset-password", async (req, res) => {
     res.status(500).json({ message: "Eroare internă" });
   }
 });
+app.post("/api/auth/logout", async (req, res) => {
+  const token = req.cookies?.[REFRESH_COOKIE_NAME];
+  console.log("se cere delogare");
+
+  if (token) {
+    try {
+      const payload = verifyRefreshToken(token);
+      await prisma.refreshToken.delete({ where: { tokenId: payload.jti } });
+    } catch (err) {
+      console.log(err);
+    }
+
+    res.clearCookie(REFRESH_COOKIE_NAME, { path: "/api/auth" });
+    res.json({ message: "Delogat" });
+  }
+});
 app.post("/delete-account", (req, res) => {});
-app.get("/api/admin/invoices", (req, res) => {
-  const Invoice = {
-    id: number,
-    customerName: string,
-    customerAddress: string,
-    amountPaid: number,
-    issuedAt: string,
-  };
-  console.log("invoces is called");
-  res.send(200);
-  let mere = { nume: "mere", prenume: "alune" };
-  res.json(mere);
+
+app.get("/api/admin/invoices", requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const invoices = await prisma.invoice.findMany({
+      orderBy: { issuedAt: "desc" },
+    });
+
+    const formatted = invoices.map((inv) => ({
+      ...inv,
+      amountPaid: Number(inv.amountPaid), // Decimal -> number, serializabil corect
+    }));
+
+    res.json({ invoices: formatted });
+  } catch (err) {
+    console.error("Eroare la /api/admin/invoices:", err);
+    res.status(500).json({ message: "Eroare internă" });
+  }
 });
 
 app.post(
@@ -574,7 +597,73 @@ app.delete(
     }
   },
 );
+app.patch(
+  "/api/admin/exhibitions/:id",
+  requireAuth,
+  requireAdmin,
+  async (req, res) => {
+    const { id } = req.params;
+    const { title, date, location, description, status, viewEnabled } =
+      req.body;
 
+    try {
+      const exhibition = await prisma.exhibitions.update({
+        where: { id: Number(id) },
+        data: {
+          ...(title !== undefined && { title }),
+          ...(date !== undefined && { date: new Date(date) }),
+          ...(location !== undefined && { location }),
+          ...(description !== undefined && { description }),
+          ...(status !== undefined && { status }),
+          ...(viewEnabled !== undefined && { viewEnabled }),
+        },
+      });
+
+      res.status(200).json({ exhibition });
+    } catch (err) {
+      console.error("Eroare la actualizarea evenimentului:", err);
+      res.status(500).json({ message: "Eroare internă" });
+    }
+  },
+);
+app.get("/api/admin/orders", requireAuth, requireAdmin, async (req, res) => {
+  const { status } = req.query;
+
+  if (!status) {
+    return res.status(400).json({ message: "status lipsește din query" });
+  }
+
+  try {
+    const orders = await prisma.order.findMany({
+      where: { status: String(status) },
+      orderBy: { createdAt: "desc" },
+      include: {
+        user: { select: { name: true } },
+        items: {
+          include: { product: { select: { name: true } } },
+        },
+      },
+    });
+
+    const formatted = orders.map((order) => ({
+      id: order.id,
+      status: order.status,
+      totalAmount: Number(order.totalAmount),
+      createdAt: order.createdAt,
+      customerName: order.user.name,
+      items: order.items.map((item) => ({
+        productName: item.product.name,
+        quantity: item.quantity,
+        price: Number(item.price),
+      })),
+    }));
+
+    res.json({ orders: formatted });
+  } catch (err) {
+    console.error("Eroare la /api/admin/orders:", err);
+    res.status(500).json({ message: "Eroare internă" });
+  }
+});
 app.get("/api/exhibitions", async (req, res) => {
   try {
     const result = await prisma.exhibitions.findMany({
@@ -594,6 +683,114 @@ app.get("/api/exhibitions", async (req, res) => {
     res.status(401).json({ error: error });
   }
 });
+
+app.get("/api/artist", async (req, res) => {
+  try {
+    const artist = await prisma.artist.findFirst();
+    if (!artist) return res.status(404).json({ message: "Artist inexistent" });
+    res.json({ artist });
+  } catch (err) {
+    console.error("Eroare la /api/artist:", err);
+    res.status(500).json({ message: "Eroare internă" });
+  }
+});
+
+app.get("/api/admin/artist", requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const artist = await prisma.artist.findFirst({});
+    res.json({ artist });
+  } catch (err) {
+    console.error("Eroare la /api/admin/artist:", err);
+    res.status(500).json({ message: "Eroare internă" });
+  }
+});
+
+app.patch("/api/admin/artist", requireAuth, requireAdmin, async (req, res) => {
+  const { name, title, description } = req.body;
+
+  if (!name || !title || !description) {
+    return res
+      .status(400)
+      .json({ message: "Date lipsă (nume, titlu sau descriere)" });
+  }
+
+  try {
+    const existing = await prisma.artist.findFirst();
+
+    const artist = existing
+      ? await prisma.artist.update({
+          where: { id: existing.id },
+          data: { name, title, description },
+        })
+      : await prisma.artist.create({ data: { name, title, description } });
+
+    res.json({ artist });
+  } catch (err) {
+    console.error("Eroare la actualizarea artistului:", err);
+    res.status(500).json({ message: "Eroare internă" });
+  }
+});
+app.get(
+  "/api/admin/invoices/:id/pdf",
+  requireAuth,
+  requireAdmin,
+  async (req, res) => {
+    const { id } = req.params;
+
+    try {
+      const invoice = await prisma.invoice.findUnique({
+        where: { id: Number(id) },
+      });
+
+      if (!invoice) {
+        return res.status(404).json({ message: "Factura nu există" });
+      }
+
+      const pdfBuffer = await generateInvoicePdf(invoice);
+
+      res.setHeader("Content-Type", "application/pdf");
+      res.setHeader(
+        "Content-Disposition",
+        `attachment; filename="factura-INV-${String(invoice.id).padStart(4, "0")}.pdf"`,
+      );
+      res.send(pdfBuffer);
+    } catch (err) {
+      console.error("Eroare la generarea PDF-ului:", err);
+      res.status(500).json({ message: "Eroare internă" });
+    }
+  },
+);
+
+app.post(
+  "/api/admin/invoices/:id/send-email",
+  requireAuth,
+  requireAdmin,
+  async (req, res) => {
+    const { id } = req.params;
+
+    try {
+      const invoice = await prisma.invoice.findUnique({
+        where: { id: Number(id) },
+        include: { order: { include: { user: true } } },
+      });
+
+      if (!invoice) {
+        return res.status(404).json({ message: "Factura nu există" });
+      }
+
+      const customerEmail = invoice.order.user.email;
+      const pdfBuffer = await generateInvoicePdf(invoice);
+
+      await sendInvoiceEmail(customerEmail, pdfBuffer, invoice);
+
+      res.json({ message: `Factura a fost trimisă către ${customerEmail}` });
+    } catch (err) {
+      console.error("Eroare la trimiterea facturii:", err);
+      res.status(500).json({ message: "Eroare internă" });
+    }
+  },
+);
+
 app.listen(8080, () => {
   console.log(
     `server started on port 8080, frontend: ${process.env.FRONTEND_ORIGIN}`,

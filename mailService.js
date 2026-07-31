@@ -72,3 +72,20 @@ export async function sendBulkEventEmail(recipients, event) {
 
   return results;
 }
+
+export async function sendInvoiceEmail(email, pdfBuffer, invoice) {
+  await transporter.sendMail({
+    from: `"Miruna's Art" <${process.env.SMTP_USER}>`,
+    to: email,
+    subject: `Factura ta — INV-${String(invoice.id).padStart(4, "0")}`,
+    text: `Bună ziua,\n\nAtașat găsești factura pentru achiziția ta de la Miruna's Art.\n\nMulțumim!`,
+    html: `<p>Bună ziua,</p><p>Atașat găsești factura pentru achiziția ta de la Miruna's Art.</p><p>Mulțumim!</p>`,
+    attachments: [
+      {
+        filename: `factura-INV-${String(invoice.id).padStart(4, "0")}.pdf`,
+        content: pdfBuffer,
+        contentType: "application/pdf",
+      },
+    ],
+  });
+}
