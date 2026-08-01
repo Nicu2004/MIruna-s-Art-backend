@@ -1,45 +1,46 @@
-import nodemailer from "nodemailer";
+import { Resend } from "resend";
 
-// Create a transporter using SMTP
-const transporter = nodemailer.createTransport({
-  host: "smtp.gmail.com",
-  port: 587,
-  secure: false, // use STARTTLS (upgrade connection to TLS after connecting)
-  auth: {
-    user: process.env.SMTP_USER,
-    pass: process.env.SMTP_PASS,
-  },
-});
+const resend = new Resend(process.env.RESEND_API_KEY);
 
-export function verifyConnection() {}
+// Domeniul din care trimiți — "onboarding@resend.dev" e domeniul de test
+// Resend, funcțional fără verificare, dar trimite DOAR către adresa ta
+// (cea cu care te-ai înregistrat pe Resend). Pentru clienți reali, ai
+// nevoie de propriul domeniu verificat (ex: no-reply@mirunasart.com).
+const FROM_ADDRESS =
+  process.env.RESEND_FROM || "Miruna's Art <onboarding@resend.dev>";
 
-try {
-  await transporter.verify();
-  console.log("Server is ready to take our messages");
-} catch (err) {
-  console.error("Verification failed:", err);
+export async function verifyConnection() {
+  // Resend n-are un echivalent direct de "verify()" ca SMTP-ul clasic —
+  // API key-ul e validat automat la primul apel real. Păstrăm funcția
+  // doar ca să nu trebuiască să schimbi apelul din server.js.
+  console.log("Resend configurat, gata de trimitere (fără SMTP).");
 }
 
 export async function sendMessage(params) {
   console.log("====================================");
   console.log(`the following code is being sent ${params.code}`);
   console.log("====================================");
+
   try {
-    const info = await transporter.sendMail({
-      from: `"Miruna's Art" <${process.env.SMTP_USER}>`,
+    const { data, error } = await resend.emails.send({
+      from: FROM_ADDRESS,
       to: params.email,
       subject: "Cod de verificare",
       text: `Salut, acesta este codul tău de verificare: ${params.code}`,
       html: `<p>Salut, acesta este codul tău de verificare: <strong>${params.code}</strong></p>`,
     });
 
-    console.log("Message sent: %s", info.messageId);
-    // Preview URL is only available when using an Ethereal test account
-    console.log("Preview URL: %s", nodemailer.getTestMessageUrl(info));
+    if (error) {
+      console.error("Error while sending mail:", error);
+      return;
+    }
+
+    console.log("Message sent:", data.id);
   } catch (err) {
     console.error("Error while sending mail:", err);
   }
 }
+
 export async function sendBulkEventEmail(recipients, event) {
   const dateFormatted = new Date(event.date).toLocaleDateString("ro-RO", {
     day: "numeric",
@@ -51,8 +52,8 @@ export async function sendBulkEventEmail(recipients, event) {
 
   for (const recipient of recipients) {
     try {
-      await transporter.sendMail({
-        from: `"Miruna's Art" <${process.env.SMTP_USER}>`,
+      const { error } = await resend.emails.send({
+        from: FROM_ADDRESS,
         to: recipient.email,
         subject: `Eveniment nou: ${event.title}`,
         text: `Bună ziua ${recipient.name},\n\nLa data de ${dateFormatted} va avea loc "${event.title}", la ${event.location}.\n\n${event.description}`,
@@ -63,7 +64,13 @@ export async function sendBulkEventEmail(recipients, event) {
           <p>${event.description}</p>
         `,
       });
-      results.sent++;
+
+      if (error) {
+        console.error(`Eroare la trimiterea către ${recipient.email}:`, error);
+        results.failed++;
+      } else {
+        results.sent++;
+      }
     } catch (err) {
       console.error(`Eroare la trimiterea către ${recipient.email}:`, err);
       results.failed++;
@@ -74,8 +81,8 @@ export async function sendBulkEventEmail(recipients, event) {
 }
 
 export async function sendInvoiceEmail(email, pdfBuffer, invoice) {
-  await transporter.sendMail({
-    from: `"Miruna's Art" <${process.env.SMTP_USER}>`,
+  const { error } = await resend.emails.send({
+    from: FROM_ADDRESS,
     to: email,
     subject: `Factura ta — INV-${String(invoice.id).padStart(4, "0")}`,
     text: `Bună ziua,\n\nAtașat găsești factura pentru achiziția ta de la Miruna's Art.\n\nMulțumim!`,
@@ -84,8 +91,12 @@ export async function sendInvoiceEmail(email, pdfBuffer, invoice) {
       {
         filename: `factura-INV-${String(invoice.id).padStart(4, "0")}.pdf`,
         content: pdfBuffer,
-        contentType: "application/pdf",
       },
     ],
   });
+
+  if (error) {
+    console.error("Eroare la trimiterea facturii:", error);
+    throw new Error(error.message);
+  }
 }
