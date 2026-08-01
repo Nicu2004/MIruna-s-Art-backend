@@ -792,7 +792,7 @@ app.post(
   },
 );
 
-app.listen(PORT, async () => {
+app.listen(PORT, "0.0.0.0", async () => {
   console.log(
     `server started on port ${PORT}, frontend: ${process.env.FRONTEND_ORIGIN}`,
   );
