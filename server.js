@@ -22,6 +22,7 @@ import cookieParser from "cookie-parser";
 import { v4 as uuidv4 } from "uuid";
 import { v2 as cloudinary } from "cloudinary";
 
+const PORT = process.env.PORT || 8080;
 cloudinary.config({
   cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
   api_key: process.env.CLOUDINARY_API_KEY,
@@ -791,8 +792,9 @@ app.post(
   },
 );
 
-app.listen(8080, () => {
+app.listen(PORT, async () => {
   console.log(
-    `server started on port 8080, frontend: ${process.env.FRONTEND_ORIGIN}`,
+    `server started on port ${PORT}, frontend: ${process.env.FRONTEND_ORIGIN}`,
   );
+  await verifyConnection();
 });
