@@ -2,17 +2,10 @@ import { Resend } from "resend";
 
 const resend = new Resend(process.env.RESEND_API_KEY);
 
-// Domeniul din care trimiți — "onboarding@resend.dev" e domeniul de test
-// Resend, funcțional fără verificare, dar trimite DOAR către adresa ta
-// (cea cu care te-ai înregistrat pe Resend). Pentru clienți reali, ai
-// nevoie de propriul domeniu verificat (ex: no-reply@mirunasart.com).
 const FROM_ADDRESS =
   process.env.RESEND_FROM || "Miruna's Art <onboarding@resend.dev>";
 
 export async function verifyConnection() {
-  // Resend n-are un echivalent direct de "verify()" ca SMTP-ul clasic —
-  // API key-ul e validat automat la primul apel real. Păstrăm funcția
-  // doar ca să nu trebuiască să schimbi apelul din server.js.
   console.log("Resend configurat, gata de trimitere (fără SMTP).");
 }
 
